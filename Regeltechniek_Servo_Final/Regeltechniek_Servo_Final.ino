@@ -3,47 +3,70 @@
 const int servoPin = 9; // PWM pin to control the servo
 Servo myServo; // Create a Servo object
 
+// PID constants
+const float Kp = 0.25894; // Proportional gain
+const float Ki = 11.6209; // Integral gain
+
+// PID variables
+float setPoint = 0; // Desired position in degrees
+float input = 0; // Current position in degrees
+float output = 0; // Output pulse width
+float integral = 0; // Integral term
+
+// Timing variables
+unsigned long previousMillis = 0; // To keep track of time
+const long moveDuration = 2000; // Time to move the servo (milliseconds)
+const long waitDuration = 30000; // Time to wait at each position (milliseconds)
+bool movingToOpen = true; // Flag to indicate if the servo is moving to the open position
+
 void setup() {
-Serial.begin(9600); // Initialize serial communication at 9600 baud rate
-myServo.attach(servoPin); // Attach the servo to the pin
+  Serial.begin(9600); // Initialize serial communication at 9600 baud rate
+  myServo.attach(servoPin); // Attach the servo to the pin
 }
 
 void loop() {
-// Move the servo from -90 to 90 degrees
-for (int setPosition = -90; setPosition <= 90; setPosition++) {
-// Map the position to pulse width according to the given specification
-float pulseWidthUs = map(setPosition, -90, 90, 500, 2400);
-// Write the pulse width to the servo
-myServo.writeMicroseconds(pulseWidthUs);
+  unsigned long currentMillis = millis();
 
-// Delay to allow the servo to reach the position
-delay(20); // Pulse cycle is approximately 20ms
+  if (movingToOpen) {
+    setPoint = -90; // Open position
+  } else {
+    setPoint = 90; // Closed position
+  }
 
-// Read the pulse width from the servo
-unsigned long measuredPulseWidth = pulseIn(servoPin, HIGH, 25000); // Maximum pulse width is 2400us, so timeout is set to 25000us (25ms)
+  // Move the servo to the set point
+  if (currentMillis - previousMillis < moveDuration) {
+    // Calculate proportional and integral control
+    unsigned long measuredPulseWidth = pulseIn(servoPin, HIGH, 25000); // Read the current pulse width
+    input = map(measuredPulseWidth, 500, 2400, -90, 90);
 
-// Convert pulse width from microseconds to milliseconds
-float measuredPulseWidthMs = measuredPulseWidth / 1000.0;
+    float error = setPoint - input;
+    integral += error;
+    output = Kp * error + Ki * integral;
 
-// Convert the measured pulse width back to position
-float measuredPosition = map(measuredPulseWidth, 500, 2400, -90, 90);
+    float pulseWidthUs = map(output, -90, 90, 500, 2400);
+    pulseWidthUs = constrain(pulseWidthUs, 500, 2400);
 
-// Convert the calculated pulse width from microseconds to milliseconds
-float calculatedPulseWidthMs = pulseWidthUs / 1000.0;
+    myServo.writeMicroseconds(pulseWidthUs);
 
-// Output the set position, calculated pulse width, measured pulse width, and measured position
-Serial.print("Set Position (degrees): ");
-Serial.print(setPosition);
-Serial.print(" -> Calculated Pulse Width (ms): ");
-Serial.print(calculatedPulseWidthMs);
-Serial.print(" -> Measured Pulse Width (ms): ");
-Serial.print(measuredPulseWidthMs);
-Serial.print(" -> Measured Position (degrees): ");
-Serial.println(measuredPosition);
+    float calculatedPulseWidthMs = pulseWidthUs / 1000.0;
 
-// Check if the servo has reached -90 or 90 degrees
-if (setPosition == -90 || setPosition == 90) {
-  delay(3000); // Keep the servo closed for 3s
-}
-}
+    Serial.print("Set Position (degrees): ");
+    Serial.print(setPoint);
+    Serial.print(" -> Calculated Pulse Width (ms): ");
+    Serial.print(calculatedPulseWidthMs);
+    Serial.print(" -> Measured Pulse Width (ms): ");
+    Serial.print(measuredPulseWidth / 1000.0);
+    Serial.print(" -> Measured Position (degrees): ");
+    Serial.println(input);
+  } else {
+    // Delay after reaching the set point
+    if (currentMillis - previousMillis < (moveDuration + waitDuration)) {
+      // Waiting period
+      delay(20); // Short delay to keep the loop running smoothly
+    } else {
+      // Update timing for next action
+      previousMillis = currentMillis;
+      movingToOpen = !movingToOpen; // Toggle position
+    }
+  }
 }
